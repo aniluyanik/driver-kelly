@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #87CEEB; 
+      font-family: 'Montserrat', sans-serif;
+    }
+    canvas {
+      display: block;
+      background-color: #87CEEB; 
+    }
+    #scoreBoard {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      font-size: 20px;
+      color: #333;
+      background-color: white;
+      padding: 10px 20px;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="1088" height="720"></canvas>
+<div id="scoreBoard">$1023</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const carImage = new Image();
+  carImage.src = 'car.png'; 
+
+  const coinImage = new Image();
+  coinImage.src = 'coin.png'; 
+
+  // Score
+  let score = 0;
+  const scoreBoard = document.getElementById('scoreBoard');
+
+  // Car object
+  const car = {
+    x: canvas.width / 4 - 25,
+    y: canvas.height - 150,
+    width: 50,
+    height: 30,
+    speed: 0.3,
+    maxSpeed: 10,
+    acceleration: 0.2,
+    deceleration: 0.1,
+    gravity: 0.5,
+    velocityY: 0
+  };
+
+  function generatePerlinNoise(length, smoothness) {
+    const noise = [];
+    let lastY = canvas.height - 200;
+    for (let i = 0; i < length; i++) {
+      const delta = (Math.random() - 0.7) * smoothness;
+      lastY += delta;
+      lastY = Math.min(canvas.height - 100, Math.max(canvas.height - 300, lastY));
+      noise.push(lastY);
+    }
+    return noise;
+  }
+
+  const terrainStep = 50;
+  const initialTerrainLength = Math.ceil(canvas.width / terrainStep) + 10;
+  let terrain = [];
+  let terrainNoise = generatePerlinNoise(initialTerrainLength, 20);
+
+  for (let i = 0; i < initialTerrainLength; i++) {
+    terrain.push({ x: i * terrainStep, y: terrainNoise[i] });
+  }
+
+  const coins = [];
+  const coinFrequency = 5;
+
+  function generateCoin(x, y) {
+    return { x: x, y: y - 30, collected: false };
+  }
+
+  for (let i = 0; i < terrain.length; i++) {
+    if (Math.random() < 1 / coinFrequency) {
+      coins.push(generateCoin(terrain[i].x, terrain[i].y));
+    }
+  }
+
+  function drawTerrain() {
+    ctx.beginPath();
+    ctx.moveTo(terrain[0].x, terrain[0].y);
+    for (let i = 1; i < terrain.length; i++) {
+      ctx.lineTo(terrain[i].x, terrain[i].y);
+    }
+    ctx.lineTo(terrain[terrain.length - 1].x, canvas.height);
+    ctx.lineTo(terrain[0].x, canvas.height);
+    ctx.closePath();
+    ctx.fillStyle = '#228B22';
+    ctx.fill();
+  }
+
+  function drawCoins() {
+    coins.forEach(coin => {
+      if (!coin.collected) {
+        ctx.drawImage(coinImage, coin.x - 15, coin.y - 15, 30, 30); 
+      }
+    });
+  }
+
+  function drawCar() {
+    ctx.drawImage(carImage, car.x, car.y, car.width, car.height); 
+  }
+
+  function getTerrainY(x) {
+    for (let i = 0; i < terrain.length - 1; i++) {
+      if (x >= terrain[i].x && x <= terrain[i + 1].x) {
+        let ratio = (x - terrain[i].x) / (terrain[i + 1].x - terrain[i].x);
+        return terrain[i].y + ratio * (terrain[i + 1].y - terrain[i].y);
+      }
+    }
+    return canvas.height;
+  }
+
+ 
+  function checkCoinCollision() {
+    coins.forEach(coin => {
+      if (!coin.collected) {
+        const distance = Math.sqrt(
+          Math.pow(car.x + car.width / 2 - coin.x, 2) +
+          Math.pow(car.y + car.height / 2 - coin.y, 2)
+        );
+        if (distance < 20) {
+          coin.collected = true;
+          score += 93;
+          scoreBoard.textContent = `$${score}`;
+        }
+      }
+    });
+  }
+
+  function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    car.velocityY += car.gravity;
+    car.y += car.velocityY;
+
+    const carFrontX = car.x + car.width / 3;
+    const terrainY = getTerrainY(carFrontX);
+    if (car.y + car.height > terrainY) {
+      car.y = terrainY - car.height;
+      car.velocityY = 0;
+    }
+
+    if (isAccelerating) {
+      car.speed = Math.min(car.speed + car.acceleration, car.maxSpeed);
+    } else {
+      if (car.speed > 0) {
+        car.speed = Math.max(car.speed - car.deceleration, 0);
+      } else if (car.speed < 0) {
+        car.speed = Math.min(car.speed + car.deceleration, 0);
+      }
+    }
+
+    if (car.speed !== 0) {
+      terrain.forEach(point => {
+        point.x -= car.speed;
+      });
+
+      coins.forEach(coin => {
+        if (!coin.collected) {
+          coin.x -= car.speed;
+        }
+      });
+
+      while (terrain.length > 0 && terrain[0].x < -terrainStep) {
+        terrain.shift();
+        const lastPoint = terrain[terrain.length - 1];
+        const newY = lastPoint.y + (Math.random() - 0.5) * 30;
+        const boundedY = Math.min(canvas.height - 100, Math.max(canvas.height - 300, newY));
+        terrain.push({ x: lastPoint.x + terrainStep, y: boundedY });
+
+        if (Math.random() < 1 / coinFrequency) {
+          coins.push(generateCoin(terrain[terrain.length - 1].x, terrain[terrain.length - 1].y));
+        }
+      }
+
+      coins.forEach((coin, index) => {
+        if (coin.x < -50) {
+          coins.splice(index, 1);
+        }
+      });
+    }
+
+    checkCoinCollision();
+
+    drawTerrain();
+    drawCoins();
+    drawCar();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  let isAccelerating = false;
+
+  function startAccelerate() {
+    isAccelerating = true;
+  }
+
+  function stopAccelerate() {
+    isAccelerating = false;
+  }
+
+  window.addEventListener('mousedown', startAccelerate);
+  window.addEventListener('mouseup', stopAccelerate);
+  window.addEventListener('mouseleave', stopAccelerate);
+
+  window.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    startAccelerate();
+  }, { passive: false });
+
+  window.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    stopAccelerate();
+  });
+
+  gameLoop();
+</script>
+
+</body></html>
+
